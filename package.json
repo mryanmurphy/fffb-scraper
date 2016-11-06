@@ -1,0 +1,7 @@
+{
+	"name": "fffb-scraper",
+	"version": "2016.11.6",
+	"dependencies": {
+		"jsdom": "latest"
+	}
+}
