@@ -23,6 +23,8 @@ Optional Variables:
 
 */
 
+/*jshint node:true, unused:false */
+
 {
 	backends: ["./backends/console"],
 	frequency: 300000,
