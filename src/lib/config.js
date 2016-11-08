@@ -14,39 +14,131 @@
  included in all copies or substantial portions of the Software.
 */
 
-/*jshint node:true, laxcomma:true */
+/*jshint node:true */
 
-var fs  = require('fs')
-  , util = require('util');
+const fs  = require('fs');
+const util = require('util');
+const EventEmitter = require('events');
+const StringDecoder = require('string_decoder').StringDecoder;
 
-var Configurator = function (file) {
+class Configurator extends EventEmitter {
+  constructor(configFile) {
+    super();
 
-  var self = this;
-  var config = {};
-  var oldConfig = {};
+    this.file = configFile;
+    this.self = this;
+    this.config = {};
+    this.oldConfig = {};
 
-  this.updateConfig = function () {
-    util.log('[' + process.pid + '] reading config file: ' + file);
+    this.updateConfig();
 
-    fs.readFile(file, function (err, data) {
+    fs.watch(this.file, function (event, filename) {
+      if (event == 'change' && this.config.automaticConfigReload != false) {
+        this.updateConfig();
+      }
+    });
+  }
+
+ removeComments(str) {
+    str = ('__' + str + '__').split('');
+    var mode = {
+        singleQuote: false,
+        doubleQuote: false,
+        regex: false,
+        blockComment: false,
+        lineComment: false,
+        condComp: false 
+    };
+    for (var i = 0, l = str.length; i < l; i++) {
+ 
+        if (mode.regex) {
+            if (str[i] === '/' && str[i-1] !== '\\') {
+                mode.regex = false;
+            }
+            continue;
+        }
+ 
+        if (mode.singleQuote) {
+            if (str[i] === "'" && str[i-1] !== '\\') {
+                mode.singleQuote = false;
+            }
+            continue;
+        }
+ 
+        if (mode.doubleQuote) {
+            if (str[i] === '"' && str[i-1] !== '\\') {
+                mode.doubleQuote = false;
+            }
+            continue;
+        }
+ 
+        if (mode.blockComment) {
+            if (str[i] === '*' && str[i+1] === '/') {
+                str[i+1] = '';
+                mode.blockComment = false;
+            }
+            str[i] = '';
+            continue;
+        }
+ 
+        if (mode.lineComment) {
+            if (str[i+1] === 'n' || str[i+1] === 'r') {
+                mode.lineComment = false;
+            }
+            str[i] = '';
+            continue;
+        }
+ 
+        if (mode.condComp) {
+            if (str[i-2] === '@' && str[i-1] === '*' && str[i] === '/') {
+                mode.condComp = false;
+            }
+            continue;
+        }
+ 
+        mode.doubleQuote = str[i] === '"';
+        mode.singleQuote = str[i] === "'";
+ 
+        if (str[i] === '/') {
+ 
+            if (str[i+1] === '*' && str[i+2] === '@') {
+                mode.condComp = true;
+                continue;
+            }
+            if (str[i+1] === '*') {
+                str[i] = '';
+                mode.blockComment = true;
+                continue;
+            }
+            if (str[i+1] === '/') {
+                str[i] = '';
+                mode.lineComment = true;
+                continue;
+            }
+            mode.regex = true;
+ 
+        }
+ 
+    }
+    return str.join('').slice(2, -2);
+}
+
+  updateConfig() {
+    var self = this;
+    util.log('[' + process.pid + '] reading config file: ' + this.file);
+
+    fs.readFile(this.file, function (err, data) {
       if (err) { throw err; }
-      old_config = self.config;
+      self.oldConfig = self.config;
 
-      self.config = eval('config = ' + data);
+      const decoder = new StringDecoder('utf8');
+      var configData = self.removeComments(decoder.write(data));
+      self.config = JSON.parse(configData);
       self.emit('configChanged', self.config);
     });
-  };
-
-  this.updateConfig();
-
-  fs.watch(file, function (event, filename) {
-    if (event == 'change' && self.config.automaticConfigReload != false) {
-      self.updateConfig();
-    }
-  });
+  }
 };
 
-util.inherits(Configurator, process.EventEmitter);
 
 exports.Configurator = Configurator;
 
