@@ -27,17 +27,23 @@ function PostgresBackend(config, emitter, logger) {
 }
 
 PostgresBackend.prototype.flush = function (type, data) {
+	var self = this;
+
 	switch (type) {
 		case 'team':
-			AddOrUpdateTeam(data);
+			this.AddOrUpdateTeam(data);
+			this.AddOrUpdateScore(data);
+			this.GetTeam(data, function(datum) {
+				self.AddOrUpdateScore(datum);
+			});
 			break;
 		
 		case 'gameState':
-			AddOrUpdateGameState(data);
+			this.AddOrUpdateGameState(data);
 			break
 		
 		case 'player':
-			AddOrUpdatePlayer(data);
+			this.AddOrUpdatePlayer(data);
 			break;
 	}
 };
@@ -58,9 +64,11 @@ RETURNING ID
 
 	pool.query(sql, [data.city, data.name, data.abbreviation], function (err, result) {
 		if (err) {
-			console.error(err);
-		} else {
-			var team = {
+			self.logger.log(err, 'ERR');
+		} else if (result.rows.length) {
+			self.logger.log(`Added team for ID ${result.rows[0].id} SourceID ${data.city}`, 'DEBUG');
+
+			let team = {
 				id: result.rows[0].id,
 				city: data.city,
 				name: data.name,
@@ -70,34 +78,44 @@ RETURNING ID
 			data.teamID = team.id;
 
 			self.CacheTeam(team);
-			self.AddOrUpdateScore(data);	
+			self.AddOrUpdateScore(data);
+		} else {
+			self.logger.log(`Team ${data.city} existed.`, 'DEBUG');
 		}
 	});
 };
 
-/*
-	ID SERIAL PRIMARY KEY 
-	, SourceID VARCHAR(50)
-	, DatePlayed DATE
-	, Quarter SMALLINT
-	, TimeRemaining TIME
-	, HomeTeamID INTEGER
-	, AwayTeamID INTEGER
-	, HomeTeamGameNumber SMALLINT
-	, AwayTeamGameNumber SMALLINT
-	, HomePoints SMALLINT
-	, AwayPoints SMALLINT
-	, IsFinal BOOLEAN
-*/
+// TODO: This gotta be refactored to promise/use cache/async+await or something.
+PostgresBackend.prototype.GetTeam = function(data, callback) {
+	const sql = `
+SELECT ID
+FROM League_Teams
+WHERE City = $1 AND Name = $2
+`;
+
+	var self = this;
+
+	pool.query(sql, [data.city, data.name], function(err, result) {
+		if (err) {
+			self.logger.log(err, 'ERR');
+		} else if (result.rows.length) {
+			data.teamID = result.rows[0].id;
+			callback(data);
+		} else {
+			self.logger.log(`Not not find team ${data.city} ${data.name}`, 'ERR');
+		}
+	});
+};
+
 PostgresBackend.prototype.AddOrUpdateScore = function(data) {
 	const sql = `
-INSERT INTO League_Games (SourceID, HomeTeamID, HomePoints, AwayTeamID, AwayPoints)
+INSERT INTO League_Games (SourceID, HomeTeamID, AwayTeamID, HomePoints, AwayPoints)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (SourceID) DO UPDATE SET 
-	HomeTeamID = EXCLUDED.HomeTeamID
-	, AwayTeamID = EXCLUDED.AwayTeamID
-	, HomePoints = EXCLUDED.HomePoints
-	, AwayPoints = EXCLUDED.AwayPoints
+	HomeTeamID = COALESCE(EXCLUDED.HomeTeamID, League_Games.HomeTeamID)
+	, AwayTeamID = COALESCE(EXCLUDED.AwayTeamID, League_Games.AwayTeamID)
+	, HomePoints = COALESCE(EXCLUDED.HomePoints, League_Games.HomePoints)
+	, AwayPoints = COALESCE(EXCLUDED.AwayPoints, League_Games.AwayPoints)
 RETURNING ID
 `;
 
@@ -105,13 +123,15 @@ RETURNING ID
 		homeID = data.side === 'home' ? data.teamID : null,
 		awayID = data.side === 'away' ? data.teamID : null,
 		homeScore = data.side === 'home' ? data.score : null,
-		awayScore = data.side === 'home' ? data.score : null;
+		awayScore = data.side === 'away' ? data.score : null;
 
 	pool.query(sql, [data.gameID, homeID, awayID, homeScore, awayScore], function (err, result) {
 		if (err) {
-			console.error(err);
+			self.logger.log(err, 'ERR');
+		} else if (result.rows.length) {
+			self.logger.log(`Saved score for ID ${result.rows[0].id} SourceID ${data.gameID}`, 'DEBUG');
 		} else {
-			console.log(`Saved score for ID ${result.rows[0].id} SourceID ${game.gameID}`);
+			self.logger.log('No action for AddOrUpdateScore','DEBUG');
 		}
 	});
 };
@@ -121,7 +141,7 @@ PostgresBackend.prototype.AddOrUpdateGameState = function(data) {
 }
 
 PostgresBackend.prototype.AddOrUpdatePlayer = function(data) {
-	AddOrUpdatePlayerStatistics(data);
+	this.AddOrUpdatePlayerStatistics(data);
 }
 
 PostgresBackend.prototype.AddOrUpdatePlayerStatistics = function(data) {
