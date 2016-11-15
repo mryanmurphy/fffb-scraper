@@ -21,8 +21,8 @@ module.exports = function() {
 
 			var regex = new RegExp(_urls.boxPattern, "gi"),
 				html = window.document.body.innerHTML,
-				matches = html.match(regex);
-
+				matches = html.match(regex) || [];
+			
 			_logger.log(`Parsed ${matches.length} links`);
 			matches.forEach(_makeBoxRequest);
 		},
@@ -47,6 +47,7 @@ module.exports = function() {
 		_parseGameState = function(window, gameID) {
 			var element = window.document.querySelector('.game-status > .game-time'),
 				time = element.textContent.split('-')[0].trim(),
+			// TODO: make quarter int always, send final as bool
 				quarter = time !== 'Final' ? element.textContent.split('-')[1].trim() : 'Final';
 			
 			// Make time a time when the game is over.
@@ -114,7 +115,7 @@ module.exports = function() {
 				isDNP = element.querySelector('td.dnp') !== null;
 			
 			if (isDNP) {
-				_emitter.emit('flush', 'player_dnp', {
+				_emitter.emit('flush', 'player', {
 					gameID: gameID,
 					side: side,
 					playerID: id,
