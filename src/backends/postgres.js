@@ -32,7 +32,6 @@ PostgresBackend.prototype.flush = function (type, data) {
 	switch (type) {
 		case 'team':
 			this.AddOrUpdateTeam(data);
-			this.AddOrUpdateScore(data);
 			this.GetTeam(data, function(datum) {
 				self.AddOrUpdateScore(datum);
 			});
@@ -137,16 +136,39 @@ RETURNING ID
 };
 
 PostgresBackend.prototype.AddOrUpdateGameState = function(data) {
+	const sql = `
+INSERT INTO League_Games (SourceID, DatePlayed, Quarter, TimeRemaining, IsFinal)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT (SourceID) DO UPDATE SET
+	DatePlayed = EXCLUDED.DatePlayed
+	, Quarter = EXCLUDED.Quarter
+	, TimeRemaining = EXCLUDED.TimeRemaining
+	, IsFinal = EXCLUDED.IsFinal
+RETURNING ID
+`;
 
-}
+	var self = this,
+		isFinal = data.quarter === 'Final', // needs to change
+		quarter = isFinal ? 4 : quarter;
+
+	pool.query(sql, [data.gameID, data.date, quarter, data.time, isFinal], function(err, result) {
+		if (err) {
+			self.logger.log(err, 'ERR');
+		} else if (result.rows.length) {
+			self.logger.log(`Saved game state for ID ${result.rows[0].id} SourceID ${data.gameID}`, 'DEBUG');
+		} else {
+			self.logger.log('No action for AddOrUpdateGameState', 'DEBUG');
+		}
+	});
+};
 
 PostgresBackend.prototype.AddOrUpdatePlayer = function(data) {
 	this.AddOrUpdatePlayerStatistics(data);
-}
+};
 
 PostgresBackend.prototype.AddOrUpdatePlayerStatistics = function(data) {
 	
-}
+};
 
 exports.init = function (config, emitter, logger) {
 	var instance = new PostgresBackend(config, emitter, logger);

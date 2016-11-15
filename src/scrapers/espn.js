@@ -22,9 +22,18 @@ module.exports = function() {
 			var regex = new RegExp(_urls.boxPattern, "gi"),
 				html = window.document.body.innerHTML,
 				matches = html.match(regex) || [];
-			
+
 			_logger.log(`Parsed ${matches.length} links`);
 			matches.forEach(_makeBoxRequest);
+		},
+
+		_parseDate = function(window) {
+			var element = window.document.title.split('-');
+			if (element && element.length >= 3) {
+				return new Date(element[2].trim());
+			}
+			
+			return new Date();
 		},
 
 		_makeBoxRequest = function(url) {
@@ -48,7 +57,8 @@ module.exports = function() {
 			var element = window.document.querySelector('.game-status > .game-time'),
 				time = element.textContent.split('-')[0].trim(),
 			// TODO: make quarter int always, send final as bool
-				quarter = time !== 'Final' ? element.textContent.split('-')[1].trim() : 'Final';
+				quarter = time !== 'Final' ? element.textContent.split('-')[1].trim() : 'Final',
+				date = _parseDate(window);
 			
 			// Make time a time when the game is over.
 			time = time !== 'Final' ? time : '0:00';
@@ -56,7 +66,8 @@ module.exports = function() {
 			_emitter.emit('flush', 'gameState', {
 				gameID: gameID,
 				time: time,
-				quarter: quarter
+				quarter: quarter,
+				date: `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`
 			});
 		},
 
