@@ -19,12 +19,16 @@ module.exports = function() {
 				_logger.log(`Error: ${err}`, 'ERROR');
 			}
 
-			var regex = new RegExp(_urls.boxPattern, "gi"),
-				html = window.document.body.innerHTML,
-				matches = html.match(regex) || [];
+			try {
+				var regex = new RegExp(_urls.boxPattern, "gi"),
+					html = window.document.head.innerHTML,
+					matches = html.match(regex) || [];
 
-			_logger.log(`Parsed ${matches.length} links`);
-			matches.forEach(_makeBoxRequest);
+				_logger.log(`Parsed ${matches.length} links`);
+				matches.forEach(_makeBoxRequest);
+			} catch (ex) {
+				_logger.log(`Exception while parsing box score!`, 'ERROR');
+			}
 		},
 
 		_parseDate = function(window) {
@@ -55,18 +59,19 @@ module.exports = function() {
 
 		_parseGameState = function(window, gameID) {
 			var element = window.document.querySelector('.game-status > .game-time'),
+				quarter = window.document.querySelectorAll('#linescore > tbody > tr:first-child > td:not([class]):not(:empty)').length,
 				time = element.textContent.split('-')[0].trim(),
-			// TODO: make quarter int always, send final as bool
-				quarter = time !== 'Final' ? element.textContent.split('-')[1].trim() : 'Final',
+				isFinal = /final/i.test(time),
 				date = _parseDate(window);
 			
-			// Make time a time when the game is over.
-			time = time !== 'Final' ? time : '0:00';
+			// Make time a time always
+			time = /^\d+:\d+$/.test(time) ? time : '0:00';
 
 			_emitter.emit('flush', 'gameState', {
 				gameID: gameID,
 				time: time,
 				quarter: quarter,
+				isFinal: isFinal,
 				date: `${date.getFullYear()}-${date.getMonth()+1}-${date.getDate()}`
 			});
 		},

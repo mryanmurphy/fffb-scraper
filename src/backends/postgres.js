@@ -15,9 +15,9 @@ function PostgresBackend(config, emitter, logger) {
 	var self = this;
 	this.config = config || {};
 	this.cache = {
-		teams: {},
-		games: {},
-		players: {}
+		teams: [],
+		games: [],
+		players: []
 	};
 	this.logger = logger;
 
@@ -32,8 +32,9 @@ PostgresBackend.prototype.flush = function (type, data) {
 	switch (type) {
 		case 'team':
 			this.AddOrUpdateTeam(data);
-			this.GetTeam(data, function(datum) {
-				self.AddOrUpdateScore(datum);
+			this.GetTeam(data, function(team) {
+				data.teamID = team.id;
+				self.AddOrUpdateScore(data);
 			});
 			break;
 		
@@ -42,29 +43,155 @@ PostgresBackend.prototype.flush = function (type, data) {
 			break
 		
 		case 'player':
-			this.AddOrUpdatePlayer(data);
-			// this.GetPlayer(data);
-			//  - > this.AddOrUpdatePlayerStatistics(data);
+			this.GetGame(data.gameID, function(game) {
+				if (data.side === "home" && game.homeID) {
+					data.teamID = game.homeID;
+				} else if (data.side === "away" && game.awayID) {
+					data.teamID = game.awayID;
+				} else {
+					self.logger.log(`Player with invalid side ${data.side} ${game.homeID} ${game.awayID}`, 'ERR');
+					return;
+				}
+
+				self.AddOrUpdatePlayer(data);
+				self.GetPlayer(data.playerID, function(player) {
+					data.id = player.id;
+					data.teamID = player.teamID;
+					data.gameID = game.id;
+
+					self.AddOrUpdatePlayerStatistics(data);
+				});
+			});
 			break;
 	}
 };
 
 PostgresBackend.prototype.CacheTeam = function(team) {
-	if (!this.cache.teams[team.id]) {
-		this.cache.teams[team.id] = team;
+	if (!this.cache.teams.find(function(e) { return e.id === team.id; })) {
+		this.cache.teams.push(team);
 	}
 };
 
 PostgresBackend.prototype.CacheGame = function(game) {
-	if (!this.cache.games[game.id]) {
-		this.cache.games[game.id] = game;
+	if (!this.cache.games.find(function(e) { return e.id === game.id; })) {
+		this.cache.games.push(game);
 	}
 };
 
 PostgresBackend.prototype.CachePlayer = function(player) {
-	if (!this.cache.players[player.id]) {
-		this.cache.players[player.id] = player;
+	if (!this.cache.players.find(function(e) { return e.id === player.id; })) {
+		this.cache.players.push(player);
 	}
+};
+
+// TODO: This gotta be refactored to promise/use cache/async+await or something.
+PostgresBackend.prototype.GetPlayer = function(sourceID, callback) {
+	var find = this.cache.players.find(function(element) {
+		return element.playerID === sourceID;
+	});
+
+	if (find) {
+		callback(find);
+		return;
+	}
+
+	const sql = `
+SELECT 
+	ID
+	, SourceID
+	, ActiveTeamID
+FROM League_Players
+WHERE SourceID = $1
+`;
+
+	var self = this;
+
+	pool.query(sql, [sourceID], function(err, result) {
+		if (err) {
+			self.logger.log(err, 'ERR');
+		} else if (result.rows.length) {
+			var player = {
+				id: result.rows[0].id,
+				playerID: sourceID,
+				teamID: result.rows[0].activeteamid
+			};
+
+			self.CachePlayer(player);
+			callback(player);
+		} else {
+			self.logger.log(`Could not find player ${sourceID}`, 'ERR');
+		}
+	});
+};
+
+PostgresBackend.prototype.GetTeam = function(data, callback) {
+	var find = this.cache.teams.find(function(element) {
+		return element.city && element.city === data.city &&
+		       element.name && element.name === data.name;
+	});
+
+	if (find) {
+		callback(find);
+		return;
+	}
+	
+	const sql = `
+SELECT ID
+FROM League_Teams
+WHERE City = $1 AND Name = $2
+`;
+
+	var self = this;
+
+	pool.query(sql, [data.city, data.name], function(err, result) {
+		if (err) {
+			self.logger.log(err, 'ERR');
+		} else if (result.rows.length) {
+			data.id = result.rows[0].id;
+			self.CacheTeam(data);
+			callback(data);
+		} else {
+			self.logger.log(`Could not find team ${data.city} ${data.name}`, 'ERR');
+		}
+	});
+};
+
+PostgresBackend.prototype.GetGame = function(sourceID, callback) {
+	var find = this.cache.games.find(function(element) {
+		return element.gameID === sourceID;
+	});
+
+	if (find) {
+		callback(find);
+		return;
+	}
+
+	const sql = `
+SELECT
+	ID
+	, HomeTeamID
+	, AwayTeamID
+FROM League_Games
+WHERE SourceID = $1
+`;
+
+	var self = this,
+		data = {gameID: sourceID};
+
+	pool.query(sql, [sourceID], function(err, result) {
+		if (err) {
+			self.logger.log(err, 'ERR');
+		} else if (result.rows.length) {
+			data.id = result.rows[0].id;
+			data.homeID = result.rows[0].hometeamid;
+			data.awayID = result.rows[0].awayteamid;
+
+			self.CacheGame(data);
+			callback(data);
+		} else {
+			self.logger.log(`Could not find game ${sourceID}`, 'ERR');
+		}
+	});
 };
 
 PostgresBackend.prototype.AddOrUpdateTeam = function(data) {
@@ -89,42 +216,9 @@ RETURNING ID
 			};
 
 			data.teamID = team.id;
-
 			self.CacheTeam(team);
-			self.AddOrUpdateScore(data);
 		} else {
 			self.logger.log(`Team ${data.city} existed.`, 'DEBUG');
-		}
-	});
-};
-
-// TODO: This gotta be refactored to promise/use cache/async+await or something.
-PostgresBackend.prototype.GetTeam = function(data, callback) {
-	var find = this.cache.teams.find(function(element) {
-		return element.city && element.city === data.city &&
-		       element.name && element.name === data.name;
-	});
-	if (find) {
-		callback(find);
-		return;
-	}
-	
-	const sql = `
-SELECT ID
-FROM League_Teams
-WHERE City = $1 AND Name = $2
-`;
-
-	var self = this;
-
-	pool.query(sql, [data.city, data.name], function(err, result) {
-		if (err) {
-			self.logger.log(err, 'ERR');
-		} else if (result.rows.length) {
-			data.teamID = result.rows[0].id;
-			callback(data);
-		} else {
-			self.logger.log(`Not not find team ${data.city} ${data.name}`, 'ERR');
 		}
 	});
 };
@@ -176,11 +270,9 @@ ON CONFLICT (SourceID) DO UPDATE SET
 RETURNING ID
 `;
 
-	var self = this,
-		isFinal = data.quarter === 'Final', // needs to change
-		quarter = isFinal ? 4 : quarter;
+	var self = this;
 
-	pool.query(sql, [data.gameID, data.date, quarter, data.time, isFinal], function(err, result) {
+	pool.query(sql, [data.gameID, data.date, data.quarter, data.time, data.isFinal], function(err, result) {
 		if (err) {
 			self.logger.log(err, 'ERR');
 		} else if (result.rows.length) {
@@ -207,18 +299,16 @@ RETURNING ID
 	var self = this,
 		isGuard = /g/i.test(data.position),
 		isForward = /f/i.test(data.position),
-		isCenter = /c/i.test(data.position),
-		teamID = -1;
+		isCenter = /c/i.test(data.position);
 	
-	// Lookup team by gameID + side (home/away)
-	pool.query(sql, [data.playerID, data.name, teamID, isGuard, isForward, isCenter], function(err, result) {
+	pool.query(sql, [data.playerID, data.name, data.teamID, isGuard, isForward, isCenter], function(err, result) {
 		if (err) {
 			self.logger.log(err, 'ERR');
 		} else if (result.rows.length) {
 			self.logger.log(`Saved player for ID ${result.rows[0].id} SourceID ${data.gameID} [${data.name}]`, 'DEBUG');
 
 			// Make sure teamID gets cached too.
-			data.id = result.rows[0];
+			data.id = result.rows[0].id;
 			self.CachePlayer(data);
 		} else {
 			self.logger.log('No action for AddOrUpdatePlayer', 'DEBUG');
@@ -292,23 +382,21 @@ RETURNING ID
 `, dnpSQL = `
 INSERT INTO League_BoxScores (GameID, TeamID, PlayerID, IsDNP, DNPStatus)
 VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (GameID, PlayerID) DO UPSET SET
+ON CONFLICT (GameID, PlayerID) DO UPDATE SET
 	TeamID = EXCLUDED.TeamID
 	, IsDNP = EXCLUDED.IsDNP
 	, DNPStatus = EXCLUDED.DNPStatus
 RETURNING ID
 `;
 
-	var teamID = -1; // Need to lookup teamID~!
-	
 	if (data.dnp) {
-		pool.query(dnpSQL, [data.gameID, teamID, data.id, true, data.dnp_reason], onInsert);
+		pool.query(dnpSQL, [data.gameID, data.teamID, data.id, true, data.dnp_reason], onInsert);
 	} else {
 		pool.query(sql, [
-			data.gameID, 
-			teamID, 
-			data.id, 
-			false, 
+			data.gameID,
+			data.teamID,
+			data.id,
+			false,
 			null,
 			data.minutes,
 			data.points,
