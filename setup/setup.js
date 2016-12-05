@@ -25,7 +25,8 @@ DROP TABLE IF EXISTS League_Players;
 CREATE TABLE League_Players (
 	ID SERIAL PRIMARY KEY 
 	, SourceID VARCHAR(50) UNIQUE
-	, Name VARCHAR(100)
+	, FirstName VARCHAR(100)
+	, LastName VARCHAR(100)
 	, ActiveTeamID INTEGER
 	, IsGuard BOOLEAN
 	, IsForward BOOLEAN

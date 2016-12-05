@@ -127,6 +127,9 @@ module.exports = function() {
 		_parsePlayer = function(element, gameID, side) {
 			var id = Number(element.querySelector('a').href.match(/\/id\/(\d+)\//)[1]),
 				name = element.querySelector('td.name > a > span').textContent,
+				namePivotIndex = name.indexOf(' '),
+				firstName = name.substring(0, namePivotIndex),
+				lastName = name.substring(namePivotIndex+1),
 				position = element.querySelector('td.name span.position').textContent,
 				isDNP = element.querySelector('td.dnp') !== null;
 			
@@ -135,7 +138,8 @@ module.exports = function() {
 					gameID: gameID,
 					side: side,
 					playerID: id,
-					name: name,
+					firstName: firstName,
+					lastName: lastName,
 					position: position,
 					minutes: 0,
 					dnp: true,
@@ -165,7 +169,8 @@ module.exports = function() {
 					gameID: gameID,
 					side: side,
 					playerID: id,
-					name: name,
+					firstName: firstName,
+					lastName: lastName,
 					position: position,
 					minutes: minutes,
 					threePointsMade: threePointsMade,

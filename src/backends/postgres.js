@@ -285,10 +285,11 @@ RETURNING ID
 
 PostgresBackend.prototype.AddOrUpdatePlayer = function(data) {
 	const sql = `
-INSERT INTO League_Players (SourceID, Name, ActiveTeamID, IsGuard, IsForward, IsCenter)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO League_Players (SourceID, FirstName, LastName, ActiveTeamID, IsGuard, IsForward, IsCenter)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (SourceID) DO UPDATE SET
-	Name = EXCLUDED.Name
+	FirstName = EXCLUDED.FirstName
+	, LastName = EXCLUDED.LastName
 	, ActiveTeamID = EXCLUDED.ActiveTeamID
 	, IsGuard = EXCLUDED.IsGuard
 	, IsForward = EXCLUDED.IsForward
@@ -301,11 +302,14 @@ RETURNING ID
 		isForward = /f/i.test(data.position),
 		isCenter = /c/i.test(data.position);
 	
-	pool.query(sql, [data.playerID, data.name, data.teamID, isGuard, isForward, isCenter], function(err, result) {
+	pool.query(sql, [data.playerID, data.firstName, data.lastName, data.teamID, isGuard, isForward, isCenter], function(err, result) {
 		if (err) {
 			self.logger.log(err, 'ERR');
 		} else if (result.rows.length) {
-			self.logger.log(`Saved player for ID ${result.rows[0].id} SourceID ${data.gameID} [${data.name}]`, 'DEBUG');
+			self.logger.log(`Saved player for ID ${result.rows[0].id} SourceID ${data.gameID} [${data.firstName} ${data.lastName}]`, 'DEBUG');
+			if (!data.firstName || !data.lastName) {
+				self.logger.log(`Undefined name on object ${JSON.stringify(data)}`, 'DEBUG');
+			}
 
 			// Make sure teamID gets cached too.
 			data.id = result.rows[0].id;

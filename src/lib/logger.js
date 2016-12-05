@@ -35,6 +35,10 @@ var Logger = function(config) {
 
 Logger.prototype = {
 	log: function(msg, type) {
+		if (/^err/i.test(type)) {
+			msg += '\n' + (new Error().stack);
+		}
+
 		if (this.backend == 'stdout') {
 			if (!type) {
 				type = 'DEBUG';
