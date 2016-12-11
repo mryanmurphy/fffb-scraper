@@ -5,7 +5,7 @@ module.exports = function() {
 	var _logger,
 		_emitter,
 		_urls = {
-			board: "http://www.espn.com/nba/scoreboard",
+			board: "http://www.espn.com/nba/scoreboard/_/date/20161119",
 			boxPattern: "http://(www.espn.com|espn.go.com)/nba/boxscore[?]gameId[=]\\d+"
 		},
 
@@ -90,7 +90,13 @@ module.exports = function() {
 			var city = element.querySelector('.long-name').textContent,
 				name = element.querySelector('.short-name').textContent,
 				abbreviation = element.querySelector('.abbrev').textContent,
-				score = Number(element.querySelector('.score').textContent);
+				score = Number(element.querySelector('.score').textContent),
+				record = /^(\d+)-(\d+)/.exec(element.querySelector(".record").textContent),
+				gameNumber = null;
+
+			if (record) {
+				gameNumber = Number(record[1]) + Number(record[2]);
+			}
 			
 			_emitter.emit('flush', 'team', {
 				gameID: gameID,
@@ -98,7 +104,8 @@ module.exports = function() {
 				name: name,
 				abbreviation: abbreviation,
 				side: element.classList.contains('home') ? 'home' : 'away',
-				score: score
+				score: score,
+				gameNumber: gameNumber
 			});
 		},
 

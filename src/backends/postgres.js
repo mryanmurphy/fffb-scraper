@@ -31,11 +31,13 @@ PostgresBackend.prototype.flush = function (type, data) {
 
 	switch (type) {
 		case 'team':
-			this.AddOrUpdateTeam(data);
-			this.GetTeam(data, function(team) {
-				data.teamID = team.id;
-				self.AddOrUpdateScore(data);
+			this.AddOrUpdateTeam(data, function() {
+				self.GetTeam(data, function(team) {
+					data.teamID = team.id;
+					self.AddOrUpdateScore(data);
+				});
 			});
+			
 			break;
 		
 		case 'gameState':
@@ -49,17 +51,18 @@ PostgresBackend.prototype.flush = function (type, data) {
 				} else if (data.side === "away" && game.awayID) {
 					data.teamID = game.awayID;
 				} else {
-					self.logger.log(`Player with invalid side ${data.side} ${game.homeID} ${game.awayID}`, 'ERR');
+					self.logger.log(`Player with invalid side ${data.side} ${game.homeID} ${game.awayID}`, 'WARNING');
 					return;
 				}
 
-				self.AddOrUpdatePlayer(data);
-				self.GetPlayer(data.playerID, function(player) {
-					data.id = player.id;
-					data.teamID = player.teamID;
-					data.gameID = game.id;
+				self.AddOrUpdatePlayer(data, function() {
+					self.GetPlayer(data.playerID, function(player) {
+						data.id = player.id;
+						data.teamID = player.teamID;
+						data.gameID = game.id;
 
-					self.AddOrUpdatePlayerStatistics(data);
+						self.AddOrUpdatePlayerStatistics(data);
+					});
 				});
 			});
 			break;
@@ -73,8 +76,13 @@ PostgresBackend.prototype.CacheTeam = function(team) {
 };
 
 PostgresBackend.prototype.CacheGame = function(game) {
-	if (!this.cache.games.find(function(e) { return e.id === game.id; })) {
+	var find = this.cache.games.find(function(e) { return e.id === game.id; });
+
+	if (!find) {
 		this.cache.games.push(game);
+	} else {
+		if (!find.homeID) find.homeID = game.homeID;
+		if (!find.awayID) find.awayID = game.awayID;
 	}
 };
 
@@ -194,7 +202,7 @@ WHERE SourceID = $1
 	});
 };
 
-PostgresBackend.prototype.AddOrUpdateTeam = function(data) {
+PostgresBackend.prototype.AddOrUpdateTeam = function(data, callback) {
 	const sql = `
 INSERT INTO League_Teams (City,Name,Abbreviation) VALUES ($1, $2, $3)
 ON CONFLICT (City,Name) DO NOTHING
@@ -205,6 +213,7 @@ RETURNING ID
 	pool.query(sql, [data.city, data.name, data.abbreviation], function (err, result) {
 		if (err) {
 			self.logger.log(err, 'ERR');
+			return;
 		} else if (result.rows.length) {
 			self.logger.log(`Added team for ID ${result.rows[0].id} SourceID ${data.city}`, 'DEBUG');
 
@@ -220,18 +229,21 @@ RETURNING ID
 		} else {
 			self.logger.log(`Team ${data.city} existed.`, 'DEBUG');
 		}
+		if (typeof callback === 'function') callback();
 	});
 };
 
 PostgresBackend.prototype.AddOrUpdateScore = function(data) {
 	const sql = `
-INSERT INTO League_Games (SourceID, HomeTeamID, AwayTeamID, HomePoints, AwayPoints)
-VALUES ($1, $2, $3, $4, $5)
+INSERT INTO League_Games (SourceID, HomeTeamID, AwayTeamID, HomePoints, AwayPoints, HomeTeamGameNumber, AwayTeamGameNumber)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (SourceID) DO UPDATE SET 
 	HomeTeamID = COALESCE(EXCLUDED.HomeTeamID, League_Games.HomeTeamID)
 	, AwayTeamID = COALESCE(EXCLUDED.AwayTeamID, League_Games.AwayTeamID)
 	, HomePoints = COALESCE(EXCLUDED.HomePoints, League_Games.HomePoints)
 	, AwayPoints = COALESCE(EXCLUDED.AwayPoints, League_Games.AwayPoints)
+	, HomeTeamGameNumber = COALESCE(EXCLUDED.HomeTeamGameNumber, League_Games.HomeTeamGameNumber)
+	, AwayTeamGameNumber = COALESCE(EXCLUDED.AwayTeamGameNumber, League_Games.AwayTeamGameNumber)
 RETURNING ID
 `;
 
@@ -241,10 +253,12 @@ RETURNING ID
 			homeID: data.side === 'home' ? data.teamID : null,
 			awayID: data.side === 'away' ? data.teamID : null,
 			homeScore: data.side === 'home' ? data.score : null,
-			awayScore: data.side === 'away' ? data.score : null
+			awayScore: data.side === 'away' ? data.score : null,
+			homeTeamGameNumber: data.side === 'home' ? data.gameNumber : null,
+			awayTeamGameNumber: data.side === 'away' ? data.gameNumber : null
 		};
 
-	pool.query(sql, [cache.gameID, cache.homeID, cache.awayID, cache.homeScore, cache.awayScore], function (err, result) {
+	pool.query(sql, [cache.gameID, cache.homeID, cache.awayID, cache.homeScore, cache.awayScore, cache.homeTeamGameNumber, cache.awayTeamGameNumber], function (err, result) {
 		if (err) {
 			self.logger.log(err, 'ERR');
 		} else if (result.rows.length) {
@@ -283,7 +297,7 @@ RETURNING ID
 	});
 };
 
-PostgresBackend.prototype.AddOrUpdatePlayer = function(data) {
+PostgresBackend.prototype.AddOrUpdatePlayer = function(data, callback) {
 	const sql = `
 INSERT INTO League_Players (SourceID, FirstName, LastName, ActiveTeamID, IsGuard, IsForward, IsCenter)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -305,6 +319,7 @@ RETURNING ID
 	pool.query(sql, [data.playerID, data.firstName, data.lastName, data.teamID, isGuard, isForward, isCenter], function(err, result) {
 		if (err) {
 			self.logger.log(err, 'ERR');
+			return;
 		} else if (result.rows.length) {
 			self.logger.log(`Saved player for ID ${result.rows[0].id} SourceID ${data.gameID} [${data.firstName} ${data.lastName}]`, 'DEBUG');
 			if (!data.firstName || !data.lastName) {
@@ -317,6 +332,7 @@ RETURNING ID
 		} else {
 			self.logger.log('No action for AddOrUpdatePlayer', 'DEBUG');
 		}
+		if (typeof callback === 'function') callback();
 	});
 };
 
