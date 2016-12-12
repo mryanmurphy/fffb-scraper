@@ -5,7 +5,7 @@ module.exports = function() {
 	var _logger,
 		_emitter,
 		_urls = {
-			board: "http://www.espn.com/nba/scoreboard/_/date/20161119",
+			board: "http://www.espn.com/nba/scoreboard",
 			boxPattern: "http://(www.espn.com|espn.go.com)/nba/boxscore[?]gameId[=]\\d+"
 		},
 
