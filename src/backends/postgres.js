@@ -244,6 +244,7 @@ ON CONFLICT (SourceID) DO UPDATE SET
 	, AwayPoints = COALESCE(EXCLUDED.AwayPoints, League_Games.AwayPoints)
 	, HomeTeamGameNumber = COALESCE(EXCLUDED.HomeTeamGameNumber, League_Games.HomeTeamGameNumber)
 	, AwayTeamGameNumber = COALESCE(EXCLUDED.AwayTeamGameNumber, League_Games.AwayTeamGameNumber)
+	, DateModified = CURRENT_TIMESTAMP
 RETURNING ID
 `;
 
@@ -281,6 +282,7 @@ ON CONFLICT (SourceID) DO UPDATE SET
 	, Quarter = EXCLUDED.Quarter
 	, TimeRemaining = EXCLUDED.TimeRemaining
 	, IsFinal = EXCLUDED.IsFinal
+	, DateModified = CURRENT_TIMESTAMP
 RETURNING ID
 `;
 
@@ -308,6 +310,7 @@ ON CONFLICT (SourceID) DO UPDATE SET
 	, IsGuard = EXCLUDED.IsGuard
 	, IsForward = EXCLUDED.IsForward
 	, IsCenter = EXCLUDED.IsCenter
+	, DateModified = CURRENT_TIMESTAMP
 RETURNING ID
 `;
 	
@@ -398,6 +401,7 @@ ON CONFLICT (GameID, PlayerID) DO UPDATE SET
 	, TwoPointsAttempted = EXCLUDED.TwoPointsAttempted
 	, ThreePointsMade = EXCLUDED.ThreePointsMade
 	, ThreePointsAttempted = EXCLUDED.ThreePointsAttempted
+	, DateModified = CURRENT_TIMESTAMP
 RETURNING ID
 `, dnpSQL = `
 INSERT INTO League_BoxScores (GameID, TeamID, PlayerID, IsDNP, DNPStatus)
@@ -406,6 +410,7 @@ ON CONFLICT (GameID, PlayerID) DO UPDATE SET
 	TeamID = EXCLUDED.TeamID
 	, IsDNP = EXCLUDED.IsDNP
 	, DNPStatus = EXCLUDED.DNPStatus
+	, DateModified = CURRENT_TIMESTAMP
 RETURNING ID
 `;
 
